@@ -1,93 +1,52 @@
-"""
-Telegram Video Downloader Bot
-------------------------------
-Bot-kani wuxuu aqbalaa link (YouTube, TikTok, Instagram, Facebook, Twitter/X, iwm)
-oo uu soo dejiyo video-ga isaga oo isticmaalaya yt-dlp, ka dibna uu ku diro user-ka
-Telegram gudaheeda.
-
-U baahan:
-    pip install pyTelegramBotAPI yt-dlp --break-system-packages
-
-TOKEN-ka waxaa lagu geliyaa Railway -> Variables (magaca BOT_TOKEN),
-KOMA JIRO koodhkan si loo ilaaliyo ammaankiisa.
-"""
-
 import os
-import telebot
-import yt_dlp
+import logging
+import requests
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# ------------------- SETUP -------------------
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN lama helin! Ku dar Environment Variable magaceeda BOT_TOKEN.")
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-bot = telebot.TeleBot(BOT_TOKEN)
+TOKEN = os.environ.get("BOT_TOKEN")
 
-DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Yoww! Ku soo dhawaaw Universal Downloader Bot. Noo soo dir link kasta (TikTok, Instagram, YouTube, FB) si aan kuugu soo dejiyo! 🚀")
 
-# Xadka ugu badan ee Telegram ku ogolaan karo file (50MB bot API caadi ah)
-MAX_FILE_SIZE_MB = 50
-
-
-# ------------------- COMMANDS -------------------
-@bot.message_handler(commands=["start", "help"])
-def send_welcome(message):
-    bot.reply_to(
-        message,
-        "👋 Salaam! Ii soo dir link video ah (YouTube, TikTok, Instagram, Facebook, iwm) "
-        "waanan kuu soo dejin doonaa.\n\n"
-        "Tusaale: https://www.tiktok.com/@user/video/123456789"
-    )
-
-
-# ------------------- MAIN VIDEO HANDLER -------------------
-@bot.message_handler(func=lambda msg: msg.text and msg.text.startswith("http"))
-def handle_link(message):
-    url = message.text.strip()
-    status_msg = bot.reply_to(message, "⏳ Soo dejinta ayaa socota, fadlan sug...")
-
-    file_path = None
+async def download_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text
+    await update.message.reply_text("Waan helay link-gaaga. Hadda ayaan bilaabayaa soo xajinta... ⏳")
+    
+    api_url = "https://api.cobalt.tools/api/json"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "url": url,
+        "videoQuality": "720",
+    }
+    
     try:
-        ydl_opts = {
-            "outtmpl": os.path.join(DOWNLOAD_DIR, "%(id)s.%(ext)s"),
-            "format": "mp4/bestvideo+bestaudio/best",
-            "merge_output_format": "mp4",
-            "quiet": True,
-            "noplaylist": True,
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info)
-            if not file_path.endswith(".mp4") and os.path.exists(file_path.rsplit(".", 1)[0] + ".mp4"):
-                file_path = file_path.rsplit(".", 1)[0] + ".mp4"
-
-        size_mb = os.path.getsize(file_path) / (1024 * 1024)
-
-        if size_mb > MAX_FILE_SIZE_MB:
-            bot.edit_message_text(
-                f"⚠️ Video-gu waa {size_mb:.1f}MB, wuu ka weyn yahay xadka Telegram ({MAX_FILE_SIZE_MB}MB). "
-                "Isku day link kale ama qulqul (quality) hoosaysa.",
-                message.chat.id, status_msg.message_id
-            )
-            return
-
-        with open(file_path, "rb") as video:
-            bot.send_video(message.chat.id, video, caption="✅ Waa kan video-gaaga!")
-
-        bot.delete_message(message.chat.id, status_msg.message_id)
-
+        response = requests.post(api_url, json=payload, headers=headers)
+        data = response.json()
+        
+        if data.get("status") == "stream" or data.get("status") == "picker":
+            video_url = data.get("url")
+            await update.message.reply_text("Waa la helay! Haddana waxaan u soo rari lahaa Telegram... 📤")
+            await update.message.reply_video(video=video_url)
+        elif data.get("status") == "error":
+            await update.message.reply_text(f"❌ API-gii baa diiday: {data.get('text')}")
+        else:
+            await update.message.reply_text("❌ Waan ka xumahay, link-gan ma taageeri karo hadda.")
+            
     except Exception as e:
-        bot.edit_message_text(f"❌ Khalad ayaa dhacay: {e}", message.chat.id, status_msg.message_id)
+        await update.message.reply_text(f"❌ Khalad baa dhacay: {str(e)}")
 
-    finally:
-        # Nadaafad — tirtir file-ka kadib markii la diro
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
+def main():
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_link))
+    application.run_polling()
 
-
-# ------------------- RUN BOT -------------------
-if __name__ == "__main__":
-    print("🤖 Bot-ku wuu shaqeynayaa...")
-    bot.infinity_polling()
+if __name__ == '__main__':
+    main()
+    
