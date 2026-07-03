@@ -1,8 +1,8 @@
 import os
 import logging
-import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import yt_dlp
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -15,56 +15,30 @@ async def download_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     await update.message.reply_text("Waan helay link-gaaga. Hadda ayaan bilaabayaa soo xajinta... ⏳")
     
-    # Waxaan isticmaalaynaa API aad u deggan oo loogu talagalay soo dejinta aaladaha bulshada
-    api_url = f"https://api.lolhuman.xyz/api/download/tiktok?apikey=freekey&url={url}"
+    # Habaynta rasmiga ah ee yt-dlp iyadoo la isticmaalayo Browser Fake User-Agent
+    ydl_opts = {
+        'outtmpl': 'video.%(ext)s',
+        'format': 'best',
+        'quiet': True,
+        'no_warnings': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    }
     
-    # Haddii uu yahay Instagram, waxaan u beddeleynaa endpoint-ka Instagram
-    if "instagram.com" in url:
-        api_url = f"https://api.lolhuman.xyz/api/instagram?apikey=freekey&url={url}"
-    # Haddii uu yahay YouTube
-    elif "youtube.com" in url or "youtu.be" in url:
-        api_url = f"https://api.lolhuman.xyz/api/ytvideo?apikey=freekey&url={url}"
-
     try:
-        response = requests.get(api_url)
-        data = response.json()
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            
+        await update.message.reply_text("Waa la soo dejiyay! Hadda ayaan u soo rari lahaa Telegram... 📤")
         
-        if data.get("status") == 200:
-            result = data.get("result")
+        with open(filename, 'rb') as video:
+            await update.message.reply_video(video=video)
             
-            # Qaab dhismeedka link-ga ee soo laabanaya wuu isbedelaa marna waa qoraal marna waa link toos ah
-            video_url = result if isinstance(result, str) else result.get("link") or result.get("video")
-            
-            if video_url:
-                await update.message.reply_text("Waa la helay! Haddana waxaan u soo rari lahaa Telegram... 📤")
-                await update.message.reply_video(video=video_url)
-            else:
-                await update.message.reply_text("❌ Waan ka xumahay, wey ku adkaatay inaan soo saaro link-ga videoga.")
-        else:
-            # Haddii API-gii hore uu mashquul yahay, waxaan ku dhabar-jebinaynaa Cobalt-kii qaab kale
-            await try_cobalt_fallback(update, url)
-            
+        os.remove(filename)
+        
     except Exception as e:
-        # Haddii uu khalad dhaco, isna Cobalt fallback ha isku dayo
-        await try_cobalt_fallback(update, url)
-
-async def try_cobalt_fallback(update, url):
-    # Hab kale oo Cobalt ah oo isticmaalaya instance ka duwan kan rasmiga ah
-    try:
-        api_url = "https://api.cobalt.tools"
-        payload = {"url": url, "videoQuality": "720"}
-        headers = {"Accept": "application/json", "Content-Type": "application/json"}
-        
-        response = requests.post(api_url, json=payload, headers=headers)
-        data = response.json()
-        
-        if "url" in data:
-            await update.message.reply_text("Waa la helay (via Cobalt)! U soo raridda Telegram... 📤")
-            await update.message.reply_video(video=data.get("url"))
-        else:
-            await update.message.reply_text("❌ Server-ka ayaa hadda mashquul ah, fadlan waxyar ka dib isku day mar kale.")
-    except Exception:
-        await update.message.reply_text("❌ Server-ka ayaa hadda mashquul ah, fadlan waxyar ka dib isku day mar kale.")
+        # Haddii uu link-gu yahay TikTok gaaban, mararka qaarkood wuxuu u baahan yahay inuu si toos ah u dhaafo nidaamka
+        await update.message.reply_text(f"❌ Khalad baa dhacay: Server-ka ayaa mashquul ah ama link-ga ayaa khaldan.")
 
 def main():
     application = Application.builder().token(TOKEN).build()
