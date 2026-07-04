@@ -1,2 +1,2 @@
-python-telegram-bot
-yt-dlp
+pyTelegramBotAPI
+yt-dlp>=2024.12.0
